@@ -1,0 +1,43 @@
+name: Lint and Commit Checks
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  lint:
+    name: Ruff lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          python: "3.13"
+
+      - name: Create virtual environment
+        run: uv venv .venv
+
+      - name: Install Ruff
+        run: uv pip install ruff==0.7.3
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+
+  conventional-commits:
+    name: Conventional Commit message check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        uses: webiny/action-conventional-commits@v1.3.0
