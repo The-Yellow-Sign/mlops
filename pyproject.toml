@@ -1,7 +1,7 @@
 [project]
-name = "backend"
+name = "mlops"
 version = "0.1.0"
-description = "The Yellow Sign backend"
+description = "The Yellow Sign MLOps"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

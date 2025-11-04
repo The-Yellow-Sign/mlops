@@ -5,6 +5,10 @@
 ## Quick Start (dev mode)
 ### Step 1 - UV sync 
 ```bash
+$env:Path = "C:\Users\danie\.local\bin;$env:Path"
+```
+
+```bash
 uv sync
 ```
 
