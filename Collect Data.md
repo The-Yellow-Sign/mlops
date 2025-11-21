@@ -57,14 +57,11 @@
 Схема БД
 ```
 -- Основные таблицы (postges)
-Projects (id, name, web_url)
-Files (id, project_id, path, web_url, raw_url, name, sha, status)
-Authors (id, name, email)
-Commits (id, file_id, sha, timestamp, author_id)
-Chunks (id, file_id, vector_id)
-
--- Для семантического поиска (Qdrant)
-Embeddings (id, embedding, payload: file_id, path, web_url)
+Group (id, name, web_url)
+Project (id, group_id, name, web_url)
+File (id, project_id, path, web_url, raw_url, name, sha, status)
+Author (id, name, email)
+Commit (id, file_id, sha, timestamp, author_id)
 ```
 Projects: https://docs.gitlab.com/api/projects/
 Files: https://docs.gitlab.com/api/repository_files/
@@ -77,24 +74,17 @@ Commits: https://docs.gitlab.com/api/commits/
 	1. Список проектов
 	2. Дерево файлов
 	3. Фильтр по .md
-	4. Сбор метаданных (для таблиц projects, files, authors и commits)
-	5. загрузка метаданных в хранилище
-2. Extraction (Извлечение контента)
+	4. Сбор метаданных (для таблиц group, project, file, author и commit)
+	5. загрузка метаданных в БД
+2. Processing (Извлечение и обработка .md файлов)
 	1. Скачивание через `raw_url`
-	2. Сохранение временного кэша
-3. Transformation (Чистка, чанкирование и Эмбеддинг)
-	1. Чистка markdown
-	2. Разбив на чанки
-	3. Эмбеддинг
-4. Load (Загрузка в хранилища)
-	1. Реляционная: загрузка chunks
-	2. Векторная: загрузка эмбеддингов и payload
-5. Sync / Update (Инкрементальные обновления)
-	1. Discovery: сравнение sha
-	2. Если файл изменился: по `file_id` находим все чанки в `Chunk` и там же все вектора по `vector_id`. Удаляем старые вектора из `vector DB`, чанки из таблицы `Chunk`, и файл из таблицы `File`.
-	3. Повторяем Extraction -> Transformation -> Load для этого файла.
-6. Webhooks для подписки на события
-7. Monitoring & Logging
+	2. Чистка markdown
+	3. Сохранение в БД
+3. Sync / Update (Инкрементальные обновления)
+	1. Запуск **Discovery**. Сравниваем файлы/коммиты по *sha*, остальные по всем полям.
+	2. Если изменения есть, то удаляем/изменяем/добавляем.
+	3. При необходимости запускаем **Processing**.
+4. Monitoring & Logging
 	1. Логирование этапов (успех, ошибки)
 	2. Отслеживание метрик (время обхода одного проекта, кол-во новых файлов, кол-во обновленных эмбеддингов).
 
