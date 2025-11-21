@@ -26,18 +26,19 @@
 
 | Категория        | Тип ограничения                     | Значение / Условия              | Применяется к      | Источник                                                                             |
 | :--------------- | :---------------------------------- | :------------------------------ | :----------------- | :----------------------------------------------------------------------------------- |
-| ==**Общие**==    | Макс. размер HTTP-ответа            | 100 MiB                         | На запрос          | [source](https://docs.gitlab.com/administration/instance_limits/)                    |
+| **Общие**    | Макс. размер HTTP-ответа            | 100 MiB                         | На запрос          | [source](https://docs.gitlab.com/administration/instance_limits/)                    |
 |                  | Таймаут запроса GraphQL             | 30 секунд                       | На запрос          | [source](https://docs.gitlab.com/api/graphql/)                                       |
-| ==**REST API**== | Неаутентифицированные запросы       | 400 / 10 минут                  | На IP-адрес        | [source](https://docs.gitlab.com/administration/settings/rate_limit_on_projects_api) |
+| **REST API** | Неаутентифицированные запросы       | 400 / 10 минут                  | На IP-адрес        | [source](https://docs.gitlab.com/administration/settings/rate_limit_on_projects_api) |
 |                  | Аутентифицированные запросы         | 2000 / 10 минут                 | На пользователя    | [source](https://docs.gitlab.com/administration/settings/rate_limit_on_projects_api) |
 |                  | Запрос к конкретному проекту        | 400 / 1 минута                  | На пользователя/IP | [source](https://docs.gitlab.com/administration/settings/rate_limit_on_projects_api) |
 |                  | Файлы репозитория >10 МБ            | 5 / 1 минута                    | На объект/проект   | [source](https://docs.gitlab.com/security/rate_limits)                               |
 |                  | Поиск (Search API)                  | 30 (аут.) / 10 (неаут.) / 1 мин | На пользователя/IP | [source](https://docs.gitlab.com/administration/instance_limits/)                    |
-| ==**GraphQL**==  | Макс. сложность неаутентиф. запроса | 200                             | На запрос          | [source](https://docs.gitlab.com/api/graphql/#maximum-query-complexity)              |
+| **GraphQL**  | Макс. сложность неаутентиф. запроса | 200                             | На запрос          | [source](https://docs.gitlab.com/api/graphql/#maximum-query-complexity)              |
 |                  | Макс. сложность аутентиф. запроса   | 250                             | На запрос          | [source](https://docs.gitlab.com/api/graphql/#maximum-query-complexity)              |
 |                  | Макс. размер запроса                | 10,000 символов                 | На запрос          | [source](https://docs.gitlab.com/api/graphql/#maximum-query-complexity)              |
 |                  | Макс. размер страницы               | 100 записей                     | На соединение      | [source](https://docs.gitlab.com/api/graphql/#maximum-query-complexity)              |
 |                  | Частота запросов                    | ?                               | ?                  | Не нашел                                                                             |
+
 **Примечание**: Для self-managed инстансов GitLab многие ограничения могут быть настроены администратором. Указанные значения актуальны для GitLab.com.
 ## Инкрементальность
  
@@ -63,9 +64,9 @@ File (id, project_id, path, web_url, raw_url, name, sha, status)
 Author (id, name, email)
 Commit (id, file_id, sha, timestamp, author_id)
 ```
-Projects: https://docs.gitlab.com/api/projects/
-Files: https://docs.gitlab.com/api/repository_files/
-Commits: https://docs.gitlab.com/api/commits/
+<p>Projects: https://docs.gitlab.com/api/projects/</p>
+<p>Files: https://docs.gitlab.com/api/repository_files/</p>
+<p>Commits: https://docs.gitlab.com/api/commits/</p>
 
 ## Pipeline
 
