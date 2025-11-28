@@ -150,4 +150,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-docker-compose.yml
+# GitLab
+srv
+.env
