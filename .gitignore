@@ -152,4 +152,6 @@ __marimo__/
 
 # GitLab
 srv
-.env
+
+# other
+tmp.json

@@ -1,0 +1,38 @@
+# VCS
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# OS / IDE
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Airflow
+logs/
+airflow.cfg
+
+# Секреты/ключи
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.crt
+*.p12
+id_rsa*
+id_dsa*
+
+# Прочее
+*.log
+tmp.json

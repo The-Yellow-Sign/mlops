@@ -15,7 +15,7 @@ services:
   #     - '$GITLAB_HOME/data:/var/opt/gitlab'
   #   shm_size: '256m'
   postgres:
-    image: postgres:15
+    image: postgres:18-alpine
     container_name: postgres
     ports:
       - "5432:5432"

@@ -1,13 +1,12 @@
-import asyncio
 import os
 from typing import Any, Optional
 
 from dotenv import load_dotenv
 from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.database import create_tables, get_db_session
-from db.repository import GroupRepository, ProjectRepository
+from db.repository import FileRepository, GroupRepository, ProjectRepository
 
 load_dotenv()
 
@@ -15,8 +14,9 @@ load_dotenv()
 class GitLabDataCollector:
     def __init__(self, full_path: str):
         self.url = "https://gitlab.com/api/graphql/"
+        self.token = os.getenv("GITLAB_TOKEN")
         self.headers = {
-            "Authorization": f"Bearer {os.getenv("GITLAB_TOKEN")}",
+            "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
         self.query = """
@@ -113,21 +113,22 @@ class GitLabDataCollector:
                 )
                 return response
             except Exception as e:
-                print(f"Ошибка при получении данных: {e}")
+                print(f"Ошибка при получении данных:\n{e}")
                 return None
 
     async def process_and_save_data(
-        self, response: dict[str, Any], db_session
+        self, data: dict[str, Any], db_session: AsyncSession
     ) -> Optional[dict]:
         """Обработать и сохранить данные в БД."""
-        if not response:
+        if not data:
             return
 
         group_repo = GroupRepository(db_session)
         project_repo = ProjectRepository(db_session)
+        file_repo = FileRepository(db_session)
 
-        group_data = response.get("group")
-        project_data = response.get("project")
+        group_data = data.get("group")
+        project_data = data.get("project")
 
         if group_data:
             await group_repo.process_group(group_data)
@@ -143,6 +144,7 @@ class GitLabDataCollector:
                         await project_repo.create_or_update_project(
                             project_data, project_group.id
                         )
+                await self.collect_files(project_data, file_repo, project_repo)
 
             await db_session.commit()
             print(
@@ -152,21 +154,21 @@ class GitLabDataCollector:
         elif project_data:
             await project_repo.create_or_update_project(project_data)
 
-
-async def main():
-    full_path = "the-yellow-sign-test"
-    await create_tables()
-
-    collector = GitLabDataCollector(full_path)
-
-    response = await collector.collect_data()
-
-    if response:
-        async for db_session in get_db_session():
-            await collector.process_and_save_data(response, db_session)
-    else:
-        print("Не удалось получить данные из GitLab")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    async def collect_files(
+        self, data: dict[str, Any], file_repo, project_repo
+    ) -> Optional[dict]:
+        """Собрать данные файлов из GitLab GraphQL API"""
+        files_data = (
+            data.get("repository", {}).get("tree", {}).get("blobs", {}).get("nodes", [])
+        )
+        for file_data in files_data:
+            if file_data.get("name")[-3:].lower() == ".md":
+                file_project_gitlab_id = data.get("id")
+                if file_project_gitlab_id:
+                    file_project = await project_repo.get_project_by_gitlab_id(
+                        file_project_gitlab_id
+                    )
+                    if file_project:
+                        await file_repo.create_file(
+                            data=file_data, project_id=file_project.id
+                        )
