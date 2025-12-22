@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 from dotenv import load_dotenv
 from sqlalchemy import exc
@@ -8,8 +9,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from db.models import Base
 
 load_dotenv()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),
+    ],
+)
 logger = logging.getLogger(__name__)
-
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5432/db"

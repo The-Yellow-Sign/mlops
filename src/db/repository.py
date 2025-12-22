@@ -9,6 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import Author, Commit, File, Group, Project
 from db.schemas import AuthorData, CommitData, FileData, GroupData, ProjectData
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("app.log"),
+    ],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -96,8 +103,9 @@ class GroupRepository(BaseRepository):
         for descendant_group in descendant_groups:
             parent_gitlab_id = descendant_group.get("parent", {}).get("id") or parent_id
             parent_group = await self.get_group_by_gitlab_id(parent_gitlab_id)
+            parent_id = parent_group.id if parent_group else None
             await self.create_or_update_group(
-                descendant_group, parent_id=parent_group.id
+                descendant_group, parent_id=parent_id
             )
 
 
@@ -245,9 +253,9 @@ class FileRepository(BaseRepository):
                 logger.info(f"Linked commit {commit_id} to file {file_id}")
                 update_made = True
 
-            if raw_file is not None:
+            if raw_file is not None and file.content != raw_file:
                 file.content = raw_file
-                logger.info(f"Updated content for file {file_id}")
+                logger.info(f"Uploaded content for file {file_id}")
                 update_made = True
 
             if update_made:

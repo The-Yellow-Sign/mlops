@@ -36,3 +36,4 @@ id_dsa*
 # Прочее
 *.log
 tmp.json
+app.log
