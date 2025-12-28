@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 
 from dotenv import load_dotenv
 from sqlalchemy import exc
@@ -28,14 +27,16 @@ async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def get_db_session():
-    """Получить асинхронную сессию БД."""
     async with async_session() as session:
         try:
             yield session
         except Exception as e:
+            await session.rollback()
             logger.error(f"Database session error: {e}")
+            raise
         finally:
             await session.close()
+
 
 
 async def create_tables():

@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 import aiohttp
 from dotenv import load_dotenv
+from pydantic import ValidationError
 from sqlalchemy import exc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,11 +15,6 @@ from db.repository import FileRepository, ProjectRepository
 from db.schemas import GitLabConfig
 
 load_dotenv()
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.FileHandler("app.log")],
-)
 
 logger = logging.getLogger(__name__)
 
@@ -40,34 +36,62 @@ class GitLabMDCollector:
     def _encode_project_path(self, project_path: str) -> str:
         return quote(project_path, safe="")
 
-    async def _make_gitlab_request(self, url: str) -> Optional[dict[str, Any]]:
+    async def _make_gitlab_request(self, url: str) -> Optional[Any]:
+        timeout = aiohttp.ClientTimeout(total=self.config.request_timeout)
+
         for attempt in range(self.config.max_retries):
             try:
-                async with aiohttp.ClientSession(headers=self.headers) as session:
-                    async with session.get(
-                        url,
-                        timeout=aiohttp.ClientTimeout(
-                            total=self.config.request_timeout
-                        ),
-                    ) as response:
+                async with aiohttp.ClientSession(
+                    headers=self.headers, timeout=timeout
+                ) as session:
+                    async with session.get(url) as response:
                         if response.status == 200:
                             return await response.text()
-                        elif response.status == 429:
-                            retry_after = int(
-                                response.headers.get(
-                                    "Retry-After", self.config.retry_delay
+
+                        if response.status == 429:
+                            ra = response.headers.get("Retry-After")
+                            try:
+                                retry_after = (
+                                    int(ra)
+                                    if ra is not None
+                                    else int(self.config.retry_delay)
                                 )
-                            )
+                            except ValueError:
+                                retry_after = int(self.config.retry_delay)
+
                             logger.warning(
                                 f"Rate limited by GitLab API. Retry after {retry_after}s"
                             )
                             await asyncio.sleep(retry_after * (attempt + 1))
-                        else:
-                            error_text = await response.text()
-                            logger.error(
-                                f"Error {response.status} from GitLab API: {error_text}"
+                            continue
+
+                        if response.status in (500, 502, 503, 504):
+                            body = await response.text()
+                            logger.warning(
+                                f"GitLab temporary error {response.status} on attempt "
+                                f"{attempt + 1}/{self.config.max_retries}: {body}"
                             )
+                            if attempt < self.config.max_retries - 1:
+                                await asyncio.sleep(
+                                    self.config.retry_delay * (2**attempt)
+                                )
+                                continue
                             return None
+
+                        if response.status in (401, 403):
+                            body = await response.text()
+                            raise PermissionError(
+                                f"GitLab auth error {response.status}: {body}"
+                            )
+
+                        if response.status == 404:
+                            body = await response.text()
+                            logger.warning(f"GitLab 404 for url={url}: {body}")
+                            return None
+
+                        body = await response.text()
+                        logger.error(f"Error {response.status} from GitLab API: {body}")
+                        return None
 
             except aiohttp.ClientError as e:
                 logger.warning(
@@ -75,6 +99,7 @@ class GitLabMDCollector:
                 )
                 if attempt < self.config.max_retries - 1:
                     await asyncio.sleep(self.config.retry_delay * (2**attempt))
+                    continue
                 else:
                     logger.error(f"Max retries exceeded for GitLab API request: {e}")
                     return None
@@ -84,15 +109,14 @@ class GitLabMDCollector:
                 )
                 if attempt < self.config.max_retries - 1:
                     await asyncio.sleep(self.config.retry_delay * (2**attempt))
+                    continue
                 else:
                     logger.error("Max retries exceeded due to timeouts")
                     return None
 
         return None
 
-    async def get_raw_file(
-        self, project_path: str, file_path: str
-    ) -> Optional[dict[str, Any]]:
+    async def get_raw_file(self, project_path: str, file_path: str) -> Optional[str]:
         """Получить содержимое MD файла."""
         encoded_project_path = self._encode_project_path(project_path)
         encoded_file_path = self._encode_project_path(file_path)
@@ -113,21 +137,30 @@ class GitLabMDCollector:
 
             return content
 
+        except PermissionError as e:
+            logger.error(
+                f"Permission error fetching raw file for {file_path} in project {project_path}: {e}"
+            )
+            raise
         except Exception as e:
             logger.error(
                 f"Unexpected error fetching raw file for {file_path} in project {project_path}: {e}"
             )
             return None
 
-    async def process_data(self, db_session: AsyncSession):
-        """Обработать данные с возможностью частичного сохранения прогресса."""
+    async def process_data(self, db_session: AsyncSession, run_id: int):
         file_repo = FileRepository(db_session)
         project_repo = ProjectRepository(db_session)
-        processed_files = 0
+
+        processed_ok = 0
+        processed_failed = 0
+        processed_skipped = 0
         start_time = time.time()
 
         try:
-            async for projects_batch in project_repo.iterate_all_projects(batch_size=4):
+            async for projects_batch in project_repo.iterate_projects_by_run(
+                run_id=run_id, batch_size=4
+            ):
                 for project in projects_batch:
                     project_id = project.id
                     project_path = project.full_path
@@ -136,22 +169,30 @@ class GitLabMDCollector:
                         project_id, batch_size=7
                     ):
                         for file in files_batch:
-                            file_path = file.path
                             try:
-                                raw_file = await self.get_raw_file(
-                                    project_path, file_path
-                                )
+                                async with db_session.begin_nested():
+                                    raw_file = await self.get_raw_file(
+                                        project_path, file.path
+                                    )
+                                    if not raw_file:
+                                        processed_failed += 1
+                                        continue
 
-                                if raw_file:
-                                    await self._save_data(
+                                    result = await self._save_data(
                                         raw_file, file, project_path, db_session
                                     )
 
-                                else:
-                                    logger.warning(
-                                        f"No content found for file: {file_path}"
-                                    )
+                                    if result is True:
+                                        processed_ok += 1
+                                    elif result is False:
+                                        processed_failed += 1
+                                    else:  # None
+                                        processed_skipped += 1
+
+                            except PermissionError:
+                                raise
                             except Exception as e:
+                                processed_failed += 1
                                 logger.error(f"Error processing file {file.path}: {e}")
 
                         try:
@@ -164,8 +205,10 @@ class GitLabMDCollector:
 
             total_time = time.time() - start_time
             logger.info(
-                f"Successfully processed {processed_files} files in {total_time:.2f} seconds"
+                f"MD collector finished: ok={processed_ok}, failed={processed_failed}, "
+                f"skipped={processed_skipped}, time={total_time:.2f}s"
             )
+
         except Exception as e:
             logger.error(f"Critical error during data processing: {e}")
             await db_session.rollback()
@@ -174,7 +217,6 @@ class GitLabMDCollector:
     async def _save_data(
         self, data: str, file: File, project_path: str, db_session: AsyncSession
     ) -> bool:
-        """Сохранить данные о коммите в БД с обработкой ошибок."""
         if not data:
             logger.warning("Attempt to save empty raw file")
             return False
@@ -182,19 +224,23 @@ class GitLabMDCollector:
         file_repo = FileRepository(db_session)
 
         try:
-            if await file_repo.update_file(file_id=file.id, raw_file=data):
+            updated = await file_repo.update_file(file_id=file.id, raw_file=data)
+            if updated is True:
                 logger.info(
                     f"Successfully added raw file {file.path} of the project {project_path}"
                 )
                 return True
-        except Exception as e:
+
+            return None
+
+        except (ValidationError, exc.SQLAlchemyError) as e:
             logger.error(
-                f"Error saving raw file {file.path} with file ID {file.id}: {e}"
+                f"Database/validation error saving raw file {file.path} with file ID {file.id}: {e}"
             )
             return False
 
-
-# TODO:
-# 1. Сделать рефакторинг кода
-# 2. Реализовать логику обновления данных (если существует, то проверить на индентичность)
-# 3. Парсинг с репы, не только из группы.
+        except Exception as e:
+            logger.error(
+                f"Unexpected error saving raw file {file.path} with file ID {file.id}: {e}"
+            )
+            return False

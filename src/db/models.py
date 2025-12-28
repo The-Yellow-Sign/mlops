@@ -10,6 +10,23 @@ class Base(AsyncAttrs, DeclarativeBase):
     pass
 
 
+class CollectionRun(Base):
+    __tablename__ = "collection_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, nullable=False
+    )
+
+    full_path: Mapped[str] = mapped_column(String(500), nullable=False)
+
+    status: Mapped[str] = mapped_column(
+        String(32), default="active", nullable=False
+    )
+
+    projects: Mapped[list["Project"]] = relationship(back_populates="run")
+
+
 class Group(Base):
     __tablename__ = "groups"
 
@@ -23,7 +40,7 @@ class Group(Base):
 
     # Relationships
     children: Mapped[list["Group"]] = relationship(
-        back_populates="parent", remote_side=[parent_id], cascade="all, delete"
+        back_populates="parent", cascade="all, delete"
     )
     parent: Mapped[Optional["Group"]] = relationship(
         back_populates="children", remote_side=[id]
@@ -40,11 +57,13 @@ class Project(Base):
     full_path: Mapped[str] = mapped_column(String(500))
     web_url: Mapped[str] = mapped_column(String(1000))
 
-    group_id: Mapped[int] = mapped_column(
-        ForeignKey("groups.id")
-    )  # могут ли существовать проекты вне групп?
+    group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("groups.id"), nullable=True
+    )
+    run_id: Mapped[int] = mapped_column(ForeignKey("collection_runs.id"), nullable=False)
 
     # Relationships
+    run: Mapped["CollectionRun"] = relationship(back_populates="projects")
     group: Mapped[Group] = relationship(back_populates="projects")
 
     files: Mapped[list["File"]] = relationship(back_populates="project")

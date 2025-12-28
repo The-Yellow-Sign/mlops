@@ -41,8 +41,8 @@ class GitLabConfig(BaseModel):
 
     """Конфигурация для services."""
 
-    rest_url: str = "https://gitlab.com/api/v4/projects"
-    graphql_url: str = "https://gitlab.com/api/graphql"
+    rest_url: str
+    graphql_url: str
     gitlab_token: str
     request_timeout: int = 30
     max_retries: int = 3

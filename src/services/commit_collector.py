@@ -6,9 +6,11 @@ from urllib.parse import quote
 
 import aiohttp
 from dotenv import load_dotenv
+from pydantic import ValidationError
 from sqlalchemy import exc
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db.models import File, Project
 from db.repository import (
     AuthorRepository,
     CommitRepository,
@@ -18,13 +20,6 @@ from db.repository import (
 from db.schemas import GitLabCommitData, GitLabConfig
 
 load_dotenv()
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("app.log")
-    ]
-)
 
 logger = logging.getLogger(__name__)
 
@@ -46,37 +41,64 @@ class GitLabCommitCollector:
     def _encode_project_path(self, project_path: str) -> str:
         return quote(project_path, safe="")
 
-    async def _make_gitlab_request(
-        self, url: str, params: dict
-    ) -> Optional[dict[str, Any]]:
+    async def _make_gitlab_request(self, url: str, params: dict) -> Optional[Any]:
+        timeout = aiohttp.ClientTimeout(total=self.config.request_timeout)
+
         for attempt in range(self.config.max_retries):
             try:
-                async with aiohttp.ClientSession(headers=self.headers) as session:
-                    async with session.get(
-                        url,
-                        params=params,
-                        timeout=aiohttp.ClientTimeout(
-                            total=self.config.request_timeout
-                        ),
-                    ) as response:
+                async with aiohttp.ClientSession(
+                    headers=self.headers, timeout=timeout
+                ) as session:
+                    async with session.get(url, params=params) as response:
                         if response.status == 200:
                             return await response.json()
-                        elif response.status == 429:
-                            retry_after = int(
-                                response.headers.get(
-                                    "Retry-After", self.config.retry_delay
+
+                        if response.status == 429:
+                            ra = response.headers.get("Retry-After")
+                            try:
+                                retry_after = (
+                                    int(ra)
+                                    if ra is not None
+                                    else int(self.config.retry_delay)
                                 )
-                            )
+                            except ValueError:
+                                retry_after = int(self.config.retry_delay)
+
                             logger.warning(
                                 f"Rate limited by GitLab API. Retry after {retry_after}s"
                             )
                             await asyncio.sleep(retry_after * (attempt + 1))
-                        else:
-                            error_text = await response.text()
-                            logger.error(
-                                f"Error {response.status} from GitLab API: {error_text}"
+                            continue
+
+                        if response.status in (500, 502, 503, 504):
+                            body = await response.text()
+                            logger.warning(
+                                f"GitLab temporary error {response.status} on attempt "
+                                f"{attempt + 1}/{self.config.max_retries}: {body}"
+                            )
+                            if attempt < self.config.max_retries - 1:
+                                await asyncio.sleep(
+                                    self.config.retry_delay * (2**attempt)
+                                )
+                                continue
+                            return None
+
+                        if response.status in (401, 403):
+                            body = await response.text()
+                            raise PermissionError(
+                                f"GitLab auth error {response.status}: {body}"
+                            )
+
+                        if response.status == 404:
+                            body = await response.text()
+                            logger.warning(
+                                f"GitLab 404 for url={url} params={params}: {body}"
                             )
                             return None
+
+                        body = await response.text()
+                        logger.error(f"Error {response.status} from GitLab API: {body}")
+                        return None
 
             except aiohttp.ClientError as e:
                 logger.warning(
@@ -84,6 +106,7 @@ class GitLabCommitCollector:
                 )
                 if attempt < self.config.max_retries - 1:
                     await asyncio.sleep(self.config.retry_delay * (2**attempt))
+                    continue
                 else:
                     logger.error(f"Max retries exceeded for GitLab API request: {e}")
                     return None
@@ -93,6 +116,7 @@ class GitLabCommitCollector:
                 )
                 if attempt < self.config.max_retries - 1:
                     await asyncio.sleep(self.config.retry_delay * (2**attempt))
+                    continue
                 else:
                     logger.error("Max retries exceeded due to timeouts")
                     return None
@@ -100,23 +124,26 @@ class GitLabCommitCollector:
         return None
 
     async def get_commit_for_file(
-        self, project_path: str, file_path: str
-    ) -> Optional[dict[str, Any]]:
+        self, project: Project, file: File
+    ) -> Optional[GitLabCommitData]:
         """Получить информацию о последнем коммите для файла."""
-        encoded_project_path = self._encode_project_path(project_path)
-        url = f"{self.config.rest_url}/{encoded_project_path}/repository/commits"
-
-        params = {
-            "path": file_path,
-            "page": 1,
-            "per_page": 1,
-        }
 
         try:
+            project_path = project.full_path
+            file_path = file.path
+            encoded_project_path = self._encode_project_path(project_path)
+            url = f"{self.config.rest_url}/{encoded_project_path}/repository/commits"
+
+            params = {
+                "path": file_path,
+                "page": 1,
+                "per_page": 1,
+            }
+
             commits = await self._make_gitlab_request(url, params)
             if not commits:
                 logger.warning(
-                    f"No commits found for file {file_path} in project {project_path}"
+                    f"No commits found for file {file_path} (ID: {file.id}) in project {project_path} (ID: {project.id})"
                 )
                 return None
 
@@ -126,25 +153,35 @@ class GitLabCommitCollector:
 
             return GitLabCommitData.model_validate(commits[0])
 
+        except PermissionError as e:
+            logger.error(
+                f"Permission error fetching commit for {file_path} (ID: {file.id}) "
+                f"in project {project_path} (ID: {project.id}): {e}"
+            )
+            raise
         except Exception as e:
             logger.error(
-                f"Unexpected error fetching commit for {file_path} in project {project_path}: {e}"
+                f"Unexpected error fetching commit for {file_path} (ID: {file.id}) "
+                f"in project {project_path} (ID: {project.id}): {e}"
             )
             return None
 
-    async def process_data(self, db_session: AsyncSession):
-        """Обработать данные с возможностью частичного сохранения прогресса."""
+    async def process_data(self, db_session: AsyncSession, run_id: int):
         file_repo = FileRepository(db_session)
         project_repo = ProjectRepository(db_session)
 
-        processed_files = 0
+        processed_ok = 0
+        processed_failed = 0
+        processed_skipped = 0
         start_time = time.time()
 
         try:
-            async for projects_batch in project_repo.iterate_all_projects(batch_size=4):
+            async for projects_batch in project_repo.iterate_projects_by_run(
+                batch_size=4, run_id=run_id
+            ):
                 for project in projects_batch:
                     logger.info(
-                        f"Processing project: {project.full_path} (ID: {project.id})"
+                        f"Commit processing project: {project.full_path} (ID: {project.id})"
                     )
 
                     async for files_batch in file_repo.iterate_files_by_project(
@@ -152,12 +189,25 @@ class GitLabCommitCollector:
                     ):
                         for file in files_batch:
                             try:
-                                await self._process_single_file(
-                                    file, project.full_path, db_session
-                                )
-                                processed_files += 1
+                                async with db_session.begin_nested():
+                                    result = await self._process_single_file(
+                                        file, project, db_session
+                                    )
+                                    if result is True:
+                                        processed_ok += 1
+                                    elif result is False:
+                                        processed_failed += 1
+                                    else:  # None
+                                        processed_skipped += 1
+
+                            except PermissionError:
+                                raise
                             except Exception as e:
-                                logger.error(f"Error processing file {file.path}: {e}")
+                                processed_failed += 1
+                                logger.error(
+                                    f"Error processing file {file.path} (ID: {file.id}) "
+                                    f"of project {project.full_path} (ID: {project.id}): {e}"
+                                )
 
                         try:
                             await db_session.commit()
@@ -169,35 +219,44 @@ class GitLabCommitCollector:
 
             total_time = time.time() - start_time
             logger.info(
-                f"Successfully processed {processed_files} files in {total_time:.2f} seconds"
+                f"Commit collector finished: ok={processed_ok}, failed={processed_failed}, "
+                f"skipped={processed_skipped}, time={total_time:.2f}s"
             )
 
         except Exception as e:
-            logger.error(f"Critical error during data processing: {e}")
+            logger.error(f"Critical error during commit processing: {e}")
             await db_session.rollback()
             raise
 
     async def _process_single_file(
-        self, file, project_path: str, db_session: AsyncSession
-    ):
-        """Обработать один файл - получить коммит и сохранить данные"""
+        self, file: File, project: Project, db_session: AsyncSession
+    ) -> bool:
+
+        commit_data = await self.get_commit_for_file(project, file)
+        if not commit_data:
+            logger.warning(
+                f"No commit data found for file: {file.path} (ID: {file.id}) "
+                f"of project {project.full_path} (ID: {project.id})"
+            )
+            return None
+
         try:
-            commit_data = await self.get_commit_for_file(project_path, file.path)
-
-            if commit_data:
-                return await self._save_data(
-                    commit_data.model_dump(), file.id, db_session
-                )
-            else:
-                logger.error(f"No commit data found for file: {file.path}")
-                raise
-
+            return await self._save_data(
+                commit_data.model_dump(), file, project, db_session
+            )
         except Exception as e:
-            logger.error(f"error processing file {file.path} (ID: {file.id}): {e}")
-            raise
+            logger.error(
+                f"Error saving commit data for file {file.path} (ID: {file.id}) "
+                f"of project {project.full_path} (ID: {project.id}): {e}"
+            )
+            return False
 
     async def _save_data(
-        self, data: dict[str, Any], file_id: int, db_session: AsyncSession
+        self,
+        data: dict[str, Any],
+        file: File,
+        project: Project,
+        db_session: AsyncSession,
     ) -> bool:
         """Сохранить данные о коммите в БД с обработкой ошибок."""
         if not data:
@@ -210,6 +269,7 @@ class GitLabCommitCollector:
 
         try:
             await author_repo.create_author(data)
+
             author_entry = await author_repo.get_author_by_username(
                 data.get("author_name", "")
             )
@@ -218,32 +278,39 @@ class GitLabCommitCollector:
                     f"Failed to retrieve or create author: {data.get('author_name', 'unknown')}"
                 )
                 return False
-            author_id = author_entry.id
 
             created_commit = await commit_repo.create_commit(
-                data=data, author_id=author_id
+                data=data, author_id=author_entry.id
             )
             if not created_commit:
-                logger.error(f"Failed to create or find commit for file ID {file_id}")
+                logger.error(
+                    f"Failed to create or find commit for file {file.id} (ID: {file.id})"
+                )
                 return False
-            commit_id = created_commit.id
 
-            if await file_repo.update_file(file_id=file_id, commit_id=commit_id):
+            commit_id = created_commit.id
+            updated = await file_repo.update_file(file_id=file.id, commit_id=commit_id)
+            if updated:
                 logger.info(
-                    f"Successfully linked commit {commit_id} to file {file_id}"
+                    f"Successfully linked commit ID {commit_id} to file {file.id} (ID: {file.id}) "
+                    f"of project {project.full_path} (ID: {project.id})"
                 )
                 return True
+            return None
+
+        except (ValidationError, exc.SQLAlchemyError) as e:
+            logger.error(
+                f"Database/validation error saving commit data for file {file.id} (ID: {file.id}) "
+                f"of project {project.full_path} (ID: {project.id}): {e}"
+            )
             return False
 
-        except exc.SQLAlchemyError as e:
-            logger.error(
-                f"Database error saving commit data for file ID {file_id}: {e}"
-            )
-            await db_session.rollback()
-            raise
         except Exception as e:
             logger.error(
-                f"Unexpected error saving commit data for file ID {file_id}: {e}"
+                f"Unexpected error saving commit data for file {file.id} (ID: {file.id}) "
+                f"of project {project.full_path} (ID: {project.id}): {e}"
             )
-            await db_session.rollback()
-            raise
+            return False
+
+
+# TODO: исправить счетчик processed_failed
