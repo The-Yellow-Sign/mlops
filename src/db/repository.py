@@ -243,7 +243,6 @@ class ProjectRepository(BaseRepository):
 
                 if existing_project.run_id != run_id:
                     existing_project.run_id = run_id
-                    updated = True
 
                 if updated:
                     await self.session.flush()
