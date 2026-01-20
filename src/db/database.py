@@ -2,7 +2,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-from sqlalchemy import exc
+from sqlalchemy import exc, inspect
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from db.models import Base
@@ -12,7 +12,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler("app.log"),
+        logging.FileHandler("logs/app.log"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -38,15 +38,31 @@ async def get_db_session():
             await session.close()
 
 
+def check_and_create(sync_conn):
+    inspector = inspect(sync_conn)
+    existing_tables = inspector.get_table_names()
+    expected_tables = Base.metadata.tables.keys()
+
+    if set(expected_tables).issubset(set(existing_tables)):
+        return False
+
+    Base.metadata.create_all(sync_conn)
+    return True
+
 
 async def create_tables():
     """Создать все таблицы в БД."""
     try:
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Tables created successfully")
+            tables_created = await conn.run_sync(check_and_create)
+
+        if tables_created:
+            logger.info("Tables created successfully (or schema updated)")
+        else:
+            logger.info("Tables already exist, skipping creation")
+
     except exc.SQLAlchemyError as e:
-        logger.error(f"Error creating tables: {e}")
+        logger.error(f"Error checking/creating tables: {e}")
         raise
     except Exception as e:
         logger.error(f"Unexpected error during table creation: {e}")
