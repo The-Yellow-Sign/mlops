@@ -7,10 +7,16 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(AsyncAttrs, DeclarativeBase):
+
+    """Базовый декларативный класс для всех моделей SQLAlchemy с поддержкой асинхронности."""
+
     pass
 
 
 class CollectionRun(Base):
+
+    """Модель запуска процесса сбора данных с отслеживанием статуса и времени."""
+
     __tablename__ = "collection_runs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -28,6 +34,9 @@ class CollectionRun(Base):
 
 
 class Group(Base):
+
+    """Модель группы GitLab с поддержкой иерархической вложенности (parent/children)."""
+
     __tablename__ = "groups"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -49,6 +58,9 @@ class Group(Base):
 
 
 class Project(Base):
+
+    """Модель проекта GitLab, привязанная к группе и конкретному запуску сбора данных."""
+
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -70,6 +82,9 @@ class Project(Base):
 
 
 class File(Base):
+
+    """Модель файла репозитория, содержащая метаданные, контент и ссылку на последний коммит."""
+
     __tablename__ = "files"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -92,6 +107,9 @@ class File(Base):
 
 
 class Commit(Base):
+
+    """Модель Git-коммита, хранящая хеш, дату, сообщение и ссылку на автора."""
+
     __tablename__ = "commits"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -107,6 +125,9 @@ class Commit(Base):
 
 
 class Author(Base):
+
+    """Модель автора коммитов с информацией об имени и электронной почте."""
+
     __tablename__ = "authors"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

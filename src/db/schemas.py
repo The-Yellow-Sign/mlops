@@ -4,6 +4,9 @@ from pydantic import BaseModel
 
 
 class GroupData(BaseModel):
+
+    """Модель данных для валидации информации о группе GitLab."""
+
     id: str
     name: str
     fullPath: str
@@ -11,6 +14,9 @@ class GroupData(BaseModel):
 
 
 class ProjectData(BaseModel):
+
+    """Модель данных для валидации информации о проекте GitLab."""
+
     id: str
     name: str
     fullPath: str
@@ -18,6 +24,9 @@ class ProjectData(BaseModel):
 
 
 class FileData(BaseModel):
+
+    """Модель данных для валидации информации о файле репозитория."""
+
     id: str
     name: str
     path: str
@@ -26,6 +35,9 @@ class FileData(BaseModel):
 
 
 class CommitData(BaseModel):
+
+    """Модель данных для валидации базовой информации о коммите."""
+
     id: str
     created_at: str
     web_url: str
@@ -33,13 +45,16 @@ class CommitData(BaseModel):
 
 
 class AuthorData(BaseModel):
+
+    """Модель данных для валидации информации об авторе GitLab."""
+
     author_name: str
     author_email: Optional[str]
 
 
 class GitLabConfig(BaseModel):
 
-    """Конфигурация для services."""
+    """Конфигурация параметров подключения к GitLab API."""
 
     rest_url: str
     graphql_url: str
@@ -51,7 +66,8 @@ class GitLabConfig(BaseModel):
 
 
 class GitLabCommitData(BaseModel):
-    """Модель для валидации данных коммита от GitLab API."""
+
+    """Модель для валидации полных данных коммита, полученных от GitLab API."""
 
     id: str
     created_at: str
@@ -59,4 +75,3 @@ class GitLabCommitData(BaseModel):
     title: str
     author_name: str
     author_email: Optional[str]
-

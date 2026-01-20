@@ -20,11 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class BaseRepository:
+    """Базовый класс с общей логикой обработки ошибок БД и валидации."""
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
     def _handle_error(self, error: Exception, entity_name: str, entity_id: str = None):
-        """Обработать ошибку и залогировать ее."""
+        """Обрабатывает и логирует ошибки SQLAlchemy и Pydantic."""
         error_map = {
             ValidationError: (f"Validation error creating {entity_name}", ValueError),
             exc.IntegrityError: (f"Integrity error for {entity_name}", None),
@@ -52,7 +54,10 @@ class BaseRepository:
 
 
 class RunRepository(BaseRepository):
+    """Репозиторий для управления жизненным циклом запусков (CollectionRun)."""
+
     async def close_all_active_runs(self):
+        """Переводит все активные запуски в статус 'closed'."""
         try:
             stmt = (
                 update(CollectionRun)
@@ -67,6 +72,7 @@ class RunRepository(BaseRepository):
     async def get_active_run_by_full_path(
         self, full_path: str
     ) -> Optional[CollectionRun]:
+        """Возвращает активный запуск по полному пути, если он существует."""
         try:
             stmt = (
                 select(CollectionRun)
@@ -83,6 +89,7 @@ class RunRepository(BaseRepository):
             self._handle_error(e, "collection_run")
 
     async def start_new_active_run(self, full_path: str) -> CollectionRun:
+        """Закрывает текущие запуски и создает новый активный запуск."""
         try:
             await self.close_all_active_runs()
             run = CollectionRun(full_path=full_path, status="active")
@@ -93,6 +100,7 @@ class RunRepository(BaseRepository):
             self._handle_error(e, "collection_run")
 
     async def get_or_create_active_run(self, full_path: str) -> CollectionRun:
+        """Возвращает существующий активный запуск или инициирует новый."""
         existing = await self.get_active_run_by_full_path(full_path)
         if existing:
             return existing
@@ -100,10 +108,10 @@ class RunRepository(BaseRepository):
 
 
 class GroupRepository(BaseRepository):
-    """Репозиторий данных Group."""
+    """Репозиторий для рекурсивной обработки групп и подгрупп GitLab."""
 
     async def get_group_by_gitlab_id(self, gitlab_id: str) -> Optional[Group]:
-        """Найти группу по GitLab ID."""
+        """Находит группу по GitLab ID."""
         try:
             stmt = select(Group).where(Group.gitlab_id == gitlab_id)
             result = await self.session.execute(stmt)
@@ -115,7 +123,7 @@ class GroupRepository(BaseRepository):
     async def create_or_update_group(
         self, data: dict[str, Any], parent_id: Optional[int] = None
     ) -> Group:
-        """Создать или обновить группу."""
+        """Создает или обновляет группу на основе полученных данных."""
         gitlab_id: str | None = None
         try:
             validated_data = GroupData.model_validate(data)
@@ -155,12 +163,7 @@ class GroupRepository(BaseRepository):
         validated_data: GroupData,
         parent_id: Optional[int] = None,
     ) -> bool:
-        """Обновить группу, если данные изменились.
-
-        Returns:
-            bool: True если были внесены изменения, иначе False
-
-        """
+        """Проверяет изменения в полях группы и обновляет их при необходимости."""
         changes = {}
 
         if group.name != validated_data.name:
@@ -190,7 +193,7 @@ class GroupRepository(BaseRepository):
     async def process_group(
         self, data: dict[str, Any], parent_id: Optional[int] = None
     ):
-        """Обработать группу и ее подгруппы."""
+        """Рекурсивно обрабатывает структуру группы и всех её потомков."""
         await self.create_or_update_group(data, parent_id)
 
         descendant_groups = data.get("descendantGroups", {}).get("nodes", [])
@@ -208,10 +211,11 @@ class GroupRepository(BaseRepository):
 
 
 class ProjectRepository(BaseRepository):
-    """Репозиторий данных Project."""
+
+    """Репозиторий для управления проектами и их привязки к запускам."""
 
     async def get_project_by_gitlab_id(self, gitlab_id: str) -> Optional[Project]:
-        """Найти проект по GitLab ID."""
+        """Находит проект по GitLab ID."""
         try:
             stmt = select(Project).where(Project.gitlab_id == gitlab_id)
             result = await self.session.execute(stmt)
@@ -226,7 +230,7 @@ class ProjectRepository(BaseRepository):
         group_id: Optional[int] = None,
         run_id: Optional[int] = None,
     ):
-        """Создать или обновить проект."""
+        """Создает или обновляет проект, связывая его с текущим запуском."""
         gitlab_id: str | None = None
         try:
             validated_data = ProjectData.model_validate(data)
@@ -277,12 +281,7 @@ class ProjectRepository(BaseRepository):
         validated_data: ProjectData,
         group_id: Optional[int] = None,
     ) -> bool:
-        """Обновить проект, если данные изменились.
-
-        Returns:
-            bool: True если были внесены изменения, иначе False
-
-        """
+        """Обновляет атрибуты проекта, если входящие данные отличаются от сохраненных."""
         changes = {}
 
         if project.name != validated_data.name:
@@ -312,7 +311,7 @@ class ProjectRepository(BaseRepository):
     async def iterate_projects_by_run(
         self, run_id: int, batch_size: int = 10
     ) -> AsyncIterator[list[Project]]:
-        """Итерация по всем проектам БД батчами."""
+        """Генерирует список проектов батчами для указанного запуска."""
         offset = 0
         while True:
             try:
@@ -336,10 +335,10 @@ class ProjectRepository(BaseRepository):
 
 
 class FileRepository(BaseRepository):
-    """Репозиторий данных File."""
+    """Репозиторий для работы с файлами, их контентом и коммитами."""
 
     async def get_file_by_gitlab_id(self, gitlab_id: str) -> Optional[File]:
-        """Найти файл по GitLab ID."""
+        """Находит файл по GitLab ID."""
         try:
             stmt = select(File).where(File.gitlab_id == gitlab_id)
             result = await self.session.execute(stmt)
@@ -354,7 +353,7 @@ class FileRepository(BaseRepository):
         project_id: int,
         last_commit_id: Optional[int] = None,
     ):
-        """Создать или обновить файл."""
+        """Создает файл или обновляет его метаданные."""
         gitlab_id: str | None = None
         try:
             validated_data = FileData.model_validate(data)
@@ -398,12 +397,7 @@ class FileRepository(BaseRepository):
         project_id: int,
         last_commit_id: Optional[int] = None,
     ) -> bool:
-        """Обновить файл, если данные изменились.
-
-        Returns:
-            bool: True если были внесены изменения, иначе False
-
-        """
+        """Сравнивает и обновляет поля файла при наличии изменений."""
         changes = {}
 
         if file.name != validated_data.name:
@@ -444,6 +438,7 @@ class FileRepository(BaseRepository):
         commit_id: int = None,
         raw_file: str = None,
     ):
+        """Обновляет содержимое файла или привязывает к нему последний коммит."""
         try:
             stmt = select(File).where(File.id == file_id)
             result = await self.session.execute(stmt)
@@ -482,6 +477,7 @@ class FileRepository(BaseRepository):
     async def iterate_files_by_project(
         self, project_id: int, batch_size: int = 20, only_missing_content: bool = False
     ) -> AsyncIterator[list[File]]:
+        """Итерирует по файлам проекта батчами с возможностью фильтрации пустых."""
         offset = 0
         while True:
             try:
@@ -504,10 +500,11 @@ class FileRepository(BaseRepository):
 
 
 class CommitRepository(BaseRepository):
-    """Репозиторий данных Commit."""
+
+    """Репозиторий для создания и обновления коммитов."""
 
     async def get_commit_by_sha(self, sha: str) -> Optional[Commit]:
-        """Найти коммит по sha."""
+        """Находит коммит по его SHA-хешу."""
         try:
             stmt = select(Commit).where(Commit.sha == sha)
             result = await self.session.execute(stmt)
@@ -519,7 +516,7 @@ class CommitRepository(BaseRepository):
     async def create_commit(
         self, data: dict[str, Any], author_id: int
     ) -> Optional[Commit]:
-        """Создать коммит."""
+        """Создает или обновляет коммит, парсит дату создания."""
         sha: str | None = None
         try:
             validated_data = CommitData.model_validate(data)
@@ -575,12 +572,7 @@ class CommitRepository(BaseRepository):
         validated_data: CommitData,
         author_id: int,
     ) -> bool:
-        """Обновить коммит, если данные изменились.
-
-        Returns:
-            bool: True если были внесены изменения, иначе False
-
-        """
+        """Обновляет данные коммита, если они изменились."""
         changes = {}
 
         if commit.author_id != author_id:
@@ -620,10 +612,11 @@ class CommitRepository(BaseRepository):
 
 
 class AuthorRepository(BaseRepository):
-    """Репозиторий данных Author."""
+
+    """Репозиторий для управления пользователями (авторами) git."""
 
     async def get_author_by_username(self, username: str) -> Optional[Author]:
-        """Найти автора по username."""
+        """Находит автора по имени пользователя."""
         try:
             stmt = select(Author).where(Author.username == username)
             result = await self.session.execute(stmt)
@@ -633,7 +626,7 @@ class AuthorRepository(BaseRepository):
             self._handle_error(e, "author")
 
     async def create_author(self, data: dict[str, Any]):
-        """Создать автора."""
+        """Создает нового автора или обновляет существующего."""
         username: str | None = None
         try:
             validated_data = AuthorData.model_validate(data)
@@ -666,12 +659,7 @@ class AuthorRepository(BaseRepository):
         author: Author,
         validated_data: AuthorData,
     ) -> bool:
-        """Обновить автора, если данные изменились.
-
-        Returns:
-            bool: True если были внесены изменения, иначе False
-
-        """
+        """Обновляет email автора при несовпадении данных."""
         changes = {}
 
         if author.email != validated_data.author_email:

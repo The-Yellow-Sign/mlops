@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
+    """Запускает полный цикл сбора данных из GitLab и сохраняет результаты в БД."""
     start_time = time.time()
     full_path = "the-yellow-sign-test"
 
