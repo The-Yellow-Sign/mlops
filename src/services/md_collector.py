@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabMDCollector:
-    """Сборщик содержимого MD файлов из GitLab API."""
+    """Сборщик содержимого Markdown-файлов через GitLab REST API."""
 
     def __init__(self, config: GitLabConfig):
         if not config.gitlab_token:
@@ -34,9 +34,11 @@ class GitLabMDCollector:
         }
 
     def _encode_project_path(self, project_path: str) -> str:
+        """Кодирует путь проекта для использования в URL REST API."""
         return quote(project_path, safe="")
 
     async def _make_gitlab_request(self, url: str) -> Optional[Any]:
+        """Выполняет HTTP-запрос к GitLab API с retry-механизмом и обработкой ошибок."""
         timeout = aiohttp.ClientTimeout(total=self.config.request_timeout)
 
         for attempt in range(self.config.max_retries):
@@ -117,7 +119,7 @@ class GitLabMDCollector:
         return None
 
     async def get_raw_file(self, project_path: str, file_path: str) -> Optional[str]:
-        """Получить содержимое MD файла."""
+        """Загружает сырое текстовое содержимое файла по его пути."""
         encoded_project_path = self._encode_project_path(project_path)
         encoded_file_path = self._encode_project_path(file_path)
 
@@ -149,6 +151,7 @@ class GitLabMDCollector:
             return None
 
     async def process_data(self, db_session: AsyncSession, run_id: int):
+        """Итерирует по файлам проектов и обновляет их контент в базе данных."""
         file_repo = FileRepository(db_session)
         project_repo = ProjectRepository(db_session)
 
@@ -217,6 +220,7 @@ class GitLabMDCollector:
     async def _save_data(
         self, data: str, file: File, project_path: str, db_session: AsyncSession
     ) -> bool:
+        """Сохраняет полученный контент файла в базу данных."""
         if not data:
             logger.warning("Attempt to save empty raw file")
             return False

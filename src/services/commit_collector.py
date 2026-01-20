@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabCommitCollector:
-    """Сборщик информации о коммитах из GitLab API."""
+
+    """Класс для сбора и обработки информации о коммитах файлов через GitLab API."""
 
     def __init__(self, config: GitLabConfig):
         if not config.gitlab_token:
@@ -39,9 +40,11 @@ class GitLabCommitCollector:
         }
 
     def _encode_project_path(self, project_path: str) -> str:
+        """Кодирует путь проекта для безопасного использования в URL-запросах."""
         return quote(project_path, safe="")
 
     async def _make_gitlab_request(self, url: str, params: dict) -> Optional[Any]:
+        """Выполняет запрос к API с обработкой ошибок, таймаутов и ограничений частоты запросов."""
         timeout = aiohttp.ClientTimeout(total=self.config.request_timeout)
 
         for attempt in range(self.config.max_retries):
@@ -126,8 +129,7 @@ class GitLabCommitCollector:
     async def get_commit_for_file(
         self, project: Project, file: File
     ) -> Optional[GitLabCommitData]:
-        """Получить информацию о последнем коммите для файла."""
-
+        """Запрашивает у GitLab API информацию о последнем коммите для указанного файла."""
         try:
             project_path = project.full_path
             file_path = file.path
@@ -167,6 +169,7 @@ class GitLabCommitCollector:
             return None
 
     async def process_data(self, db_session: AsyncSession, run_id: int):
+        """Запускает пакетную обработку файлов всех проектов текущего запуска для сбора коммитов."""
         file_repo = FileRepository(db_session)
         project_repo = ProjectRepository(db_session)
 
@@ -231,7 +234,7 @@ class GitLabCommitCollector:
     async def _process_single_file(
         self, file: File, project: Project, db_session: AsyncSession
     ) -> bool:
-
+        """Получает данные коммита для конкретного файла и инициирует их сохранение."""
         commit_data = await self.get_commit_for_file(project, file)
         if not commit_data:
             logger.warning(
@@ -258,7 +261,7 @@ class GitLabCommitCollector:
         project: Project,
         db_session: AsyncSession,
     ) -> bool:
-        """Сохранить данные о коммите в БД с обработкой ошибок."""
+        """Создает записи автора и коммита в БД, после чего связывает коммит с файлом."""
         if not data:
             logger.warning("Attempt to save empty commit data")
             return False
@@ -311,6 +314,3 @@ class GitLabCommitCollector:
                 f"of project {project.full_path} (ID: {project.id}): {e}"
             )
             return False
-
-
-# TODO: исправить счетчик processed_failed

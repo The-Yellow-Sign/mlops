@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabDataCollector:
-    """Сборщик метаданных из GitLab GraphQL API."""
+
+    """Класс для сбора метаданных (группы, проекты, файлы) через GitLab GraphQL API."""
 
     def __init__(self, full_path: str, config: GitLabConfig):
         if not config.gitlab_token:
@@ -108,7 +109,7 @@ class GitLabDataCollector:
     async def _make_graphql_request(
         self, variable_values: dict
     ) -> Optional[dict[str, Any]]:
-        """Универсальный метод для запросов к GitLab GraphQL API с retry-логикой и обработкой ошибок"""
+        """Выполняет GraphQL-запрос с автоматическими повторами и обработкой ошибок."""
         transport = AIOHTTPTransport(
             url=self.config.graphql_url,
             headers=self.headers,
@@ -147,7 +148,7 @@ class GitLabDataCollector:
         return None
 
     async def collect_data(self) -> Optional[dict]:
-        """Собрать метаданные данные из GitLab GraphQL API."""
+        """Запрашивает данные о структуре группы или проекта по полному пути."""
         logger.info(f"Starting data collection for path: {self.full_path}")
 
         try:
@@ -168,6 +169,7 @@ class GitLabDataCollector:
     async def process_and_save_data(
         self, data: dict[str, Any], db_session: AsyncSession, run_id: int
     ) -> bool:
+        """Парсит полученные данные и сохраняет иерархию групп и проектов в БД."""
         if not data:
             logger.warning("No data to process and save")
             return False
@@ -246,7 +248,7 @@ class GitLabDataCollector:
     async def _collect_files(
         self, data: dict[str, Any], file_repo, project_repo
     ) -> Optional[dict]:
-        """Собрать данные файлов из GitLab GraphQL API"""
+        """Извлекает информацию о .md файлах из данных проекта и сохраняет их в БД."""
         files_data = (
             data.get("repository", {}).get("tree", {}).get("blobs", {}).get("nodes", [])
         )
