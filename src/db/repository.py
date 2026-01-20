@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class BaseRepository:
+
     """Базовый класс с общей логикой обработки ошибок БД и валидации."""
 
     def __init__(self, session: AsyncSession):
@@ -54,6 +55,7 @@ class BaseRepository:
 
 
 class RunRepository(BaseRepository):
+
     """Репозиторий для управления жизненным циклом запусков (CollectionRun)."""
 
     async def close_all_active_runs(self):
@@ -108,6 +110,7 @@ class RunRepository(BaseRepository):
 
 
 class GroupRepository(BaseRepository):
+
     """Репозиторий для рекурсивной обработки групп и подгрупп GitLab."""
 
     async def get_group_by_gitlab_id(self, gitlab_id: str) -> Optional[Group]:
@@ -302,8 +305,10 @@ class ProjectRepository(BaseRepository):
 
         if changes:
             logger.debug(
-                f"Project {project.full_path} (ID: {project.id}) changed fields: {list(changes.keys())}"
+                f"Project {project.full_path} (ID: {project.id}) "
+                f"changed fields: {list(changes.keys())}"
             )
+
             return True
 
         return False
@@ -335,6 +340,7 @@ class ProjectRepository(BaseRepository):
 
 
 class FileRepository(BaseRepository):
+
     """Репозиторий для работы с файлами, их контентом и коммитами."""
 
     async def get_file_by_gitlab_id(self, gitlab_id: str) -> Optional[File]:
@@ -599,7 +605,8 @@ class CommitRepository(BaseRepository):
                     commit.timestamp = new_timestamp
             except ValueError:
                 logger.warning(
-                    f"Invalid timestamp format for commit {commit.sha}: {timestamp_str}, skipping timestamp update"
+                    f"Invalid timestamp format for commit {commit.sha}: "
+                    f"{timestamp_str}, skipping update"
                 )
 
         if changes:
