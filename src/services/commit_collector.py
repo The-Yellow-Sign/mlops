@@ -43,6 +43,27 @@ class GitLabCommitCollector:
         """Кодирует путь проекта для безопасного использования в URL-запросах."""
         return quote(project_path, safe="")
 
+    async def _wait_for_retry(
+        self, attempt: int, response: Optional[aiohttp.ClientResponse] = None
+    ):
+        """Вычисляет время ожидания и засыпает."""
+        retry_after = self.config.retry_delay * (2**attempt)
+
+        if response and response.status == 429:
+            ra = response.headers.get("Retry-After")
+            try:
+                retry_after = int(ra) if ra is not None else retry_after
+            except ValueError:
+                pass
+            logger.warning(f"Rate limited by GitLab API. Retry after {retry_after}s")
+        elif response:
+            logger.warning(
+                f"GitLab temporary error {response.status} on attempt "
+                f"{attempt + 1}/{self.config.max_retries}"
+            )
+
+        await asyncio.sleep(retry_after)
+
     async def _make_gitlab_request(self, url: str, params: dict) -> Optional[Any]:
         """Выполняет запрос к API с обработкой ошибок, таймаутов и ограничений частоты запросов."""
         timeout = aiohttp.ClientTimeout(total=self.config.request_timeout)
@@ -55,36 +76,6 @@ class GitLabCommitCollector:
                     async with session.get(url, params=params) as response:
                         if response.status == 200:
                             return await response.json()
-
-                        if response.status == 429:
-                            ra = response.headers.get("Retry-After")
-                            try:
-                                retry_after = (
-                                    int(ra)
-                                    if ra is not None
-                                    else int(self.config.retry_delay)
-                                )
-                            except ValueError:
-                                retry_after = int(self.config.retry_delay)
-
-                            logger.warning(
-                                f"Rate limited by GitLab API. Retry after {retry_after}s"
-                            )
-                            await asyncio.sleep(retry_after * (attempt + 1))
-                            continue
-
-                        if response.status in (500, 502, 503, 504):
-                            body = await response.text()
-                            logger.warning(
-                                f"GitLab temporary error {response.status} on attempt "
-                                f"{attempt + 1}/{self.config.max_retries}: {body}"
-                            )
-                            if attempt < self.config.max_retries - 1:
-                                await asyncio.sleep(
-                                    self.config.retry_delay * (2**attempt)
-                                )
-                                continue
-                            return None
 
                         if response.status in (401, 403):
                             body = await response.text()
@@ -99,30 +90,30 @@ class GitLabCommitCollector:
                             )
                             return None
 
+                        if response.status == 429 or response.status in (
+                            500,
+                            502,
+                            503,
+                            504,
+                        ):
+                            if attempt < self.config.max_retries - 1:
+                                await self._wait_for_retry(attempt, response)
+                                continue
+                            return None
+
                         body = await response.text()
                         logger.error(f"Error {response.status} from GitLab API: {body}")
                         return None
 
-            except aiohttp.ClientError as e:
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 logger.warning(
-                    f"Network error on attempt {attempt + 1}/{self.config.max_retries}: {e}"
+                    f"Network/Timeout error on attempt {attempt + 1}/{self.config.max_retries}: {e}"
                 )
                 if attempt < self.config.max_retries - 1:
-                    await asyncio.sleep(self.config.retry_delay * (2**attempt))
+                    await self._wait_for_retry(attempt)
                     continue
-                else:
-                    logger.error(f"Max retries exceeded for GitLab API request: {e}")
-                    return None
-            except asyncio.TimeoutError:
-                logger.warning(
-                    f"Timeout on attempt {attempt + 1}/{self.config.max_retries}"
-                )
-                if attempt < self.config.max_retries - 1:
-                    await asyncio.sleep(self.config.retry_delay * (2**attempt))
-                    continue
-                else:
-                    logger.error("Max retries exceeded due to timeouts")
-                    return None
+                logger.error(f"Max retries exceeded: {e}")
+                return None
 
         return None
 
@@ -145,7 +136,8 @@ class GitLabCommitCollector:
             commits = await self._make_gitlab_request(url, params)
             if not commits:
                 logger.warning(
-                    f"No commits found for file {file_path} (ID: {file.id}) in project {project_path} (ID: {project.id})"
+                    f"No commits found for file {file_path} (ID: {file.id}) "
+                    f"in project {project_path} (ID: {project.id})"
                 )
                 return None
 
@@ -168,14 +160,55 @@ class GitLabCommitCollector:
             )
             return None
 
+    async def _process_project_files(
+        self, project: Project, db_session: AsyncSession
+    ) -> tuple[int, int, int]:
+        """Обрабатывает файлы одного проекта и возвращает статистику."""
+        file_repo = FileRepository(db_session)
+        p_ok, p_failed, p_skipped = 0, 0, 0
+
+        async for files_batch in file_repo.iterate_files_by_project(
+            project.id, batch_size=7
+        ):
+            for file in files_batch:
+                try:
+                    async with db_session.begin_nested():
+                        result = await self._process_single_file(
+                            file, project, db_session
+                        )
+                        if result is True:
+                            p_ok += 1
+                        elif result is False:
+                            p_failed += 1
+                        else:  # None
+                            p_skipped += 1
+
+                except PermissionError:
+                    raise
+                except Exception as e:
+                    p_failed += 1
+                    logger.error(
+                        f"Error processing file {file.path} (ID: {file.id}) "
+                        f"of project {project.full_path} (ID: {project.id}): {e}"
+                    )
+
+            try:
+                await db_session.commit()
+                logger.debug(f"Committed batch of {len(files_batch)} files")
+            except exc.SQLAlchemyError as e:
+                logger.error(f"Database commit error: {e}")
+                await db_session.rollback()
+                raise
+
+        return p_ok, p_failed, p_skipped
+
     async def process_data(self, db_session: AsyncSession, run_id: int):
         """Запускает пакетную обработку файлов всех проектов текущего запуска для сбора коммитов."""
-        file_repo = FileRepository(db_session)
         project_repo = ProjectRepository(db_session)
 
-        processed_ok = 0
-        processed_failed = 0
-        processed_skipped = 0
+        total_ok = 0
+        total_failed = 0
+        total_skipped = 0
         start_time = time.time()
 
         try:
@@ -187,43 +220,17 @@ class GitLabCommitCollector:
                         f"Commit processing project: {project.full_path} (ID: {project.id})"
                     )
 
-                    async for files_batch in file_repo.iterate_files_by_project(
-                        project.id, batch_size=7
-                    ):
-                        for file in files_batch:
-                            try:
-                                async with db_session.begin_nested():
-                                    result = await self._process_single_file(
-                                        file, project, db_session
-                                    )
-                                    if result is True:
-                                        processed_ok += 1
-                                    elif result is False:
-                                        processed_failed += 1
-                                    else:  # None
-                                        processed_skipped += 1
-
-                            except PermissionError:
-                                raise
-                            except Exception as e:
-                                processed_failed += 1
-                                logger.error(
-                                    f"Error processing file {file.path} (ID: {file.id}) "
-                                    f"of project {project.full_path} (ID: {project.id}): {e}"
-                                )
-
-                        try:
-                            await db_session.commit()
-                            logger.debug(f"Committed batch of {len(files_batch)} files")
-                        except exc.SQLAlchemyError as e:
-                            logger.error(f"Database commit error: {e}")
-                            await db_session.rollback()
-                            raise
+                    p_ok, p_failed, p_skipped = await self._process_project_files(
+                        project, db_session
+                    )
+                    total_ok += p_ok
+                    total_failed += p_failed
+                    total_skipped += p_skipped
 
             total_time = time.time() - start_time
             logger.info(
-                f"Commit collector finished: ok={processed_ok}, failed={processed_failed}, "
-                f"skipped={processed_skipped}, time={total_time:.2f}s"
+                f"Commit collector finished: ok={total_ok}, failed={total_failed}, "
+                f"skipped={total_skipped}, time={total_time:.2f}s"
             )
 
         except Exception as e:

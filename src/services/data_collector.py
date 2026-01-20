@@ -216,7 +216,8 @@ class GitLabDataCollector:
 
                 await db_session.commit()
                 logger.info(
-                    f"Saved group '{group_data.get('name')}', projects ok={saved_projects}, failed={failed_projects}"
+                    f"Saved group '{group_data.get('name')}', "
+                    f"projects ok={saved_projects}, failed={failed_projects}"
                 )
                 return True
 
@@ -285,6 +286,7 @@ class GitLabDataCollector:
                 raise
             except Exception as e:
                 logger.error(
-                    f"Error saving file {file_data.get('path', 'unknown')} in project {project.full_path}: {e}"
+                    f"Error saving file {file_data.get('path', 'unknown')} "
+                    f"in project {project.full_path}: {e}"
                 )
                 continue
