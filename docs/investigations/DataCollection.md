@@ -97,4 +97,4 @@ Commits: https://docs.gitlab.com/api/commits/
 
 # Диаграммы
 
-В папке `figures` представлены две диаграммы [ER-diagram](docs/investigations/figures/ER-diagram.png) и [DFD](docs/investigations/figures/DFD.png).
+В папке `figures` представлены две диаграммы [ER-diagram](figures/ER-diagram.png) и [DFD](figures/DFD.png).
