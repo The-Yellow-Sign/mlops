@@ -4,6 +4,12 @@
 
 ## Quick Start (dev mode)
 ### Step 1 - UV sync 
+
+Add user bin to Path (PowerShell):
+```powershell
+$env:Path = "C:\Users\danie\.local\bin;$env:Path"
+```
+Sync dependencies:
 ```bash
 uv sync
 ```

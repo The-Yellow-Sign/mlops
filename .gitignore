@@ -149,3 +149,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# other
+tmp.json
+logs
