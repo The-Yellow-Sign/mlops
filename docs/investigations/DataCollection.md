@@ -81,7 +81,7 @@ Commits: https://docs.gitlab.com/api/commits/
 	3. Фильтр по .md
 	4. Сбор метаданных (для таблиц group, project, file, author и commit)
 	5. загрузка метаданных в БД
-2. Processing (Извлечение и обработка .md файлов)
+2. Processing (Извлечение и загрузка .md файлов)
 	1. Скачивание через `raw_url`
 	2. Сохранение в БД
 3. Sync / Update (Инкрементальные обновления)
