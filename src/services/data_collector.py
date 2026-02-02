@@ -156,10 +156,10 @@ class GitLabDataCollector:
                 {"fullPath": self.full_path, "ref": self.config.default_branch}
             )
 
-            if response:
-                logger.info(f"Successfully received data for path: {self.full_path}")
-            else:
+            if response.get("project", None) is None and response.get("group", None):
                 logger.error(f"Failed to receive data for path: {self.full_path}")
+            else:
+                logger.info(f"Successfully received data for path: {self.full_path}")
             return response
 
         except Exception as e:
