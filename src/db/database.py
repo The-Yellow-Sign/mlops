@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from db.models import Base
 
 load_dotenv()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -17,12 +18,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+asyncpg://postgres:password@localhost:5432/db"
+# Определяем, запущены ли мы в Docker
+IS_DOCKER = os.getenv("IS_DOCKER", "false").lower() == "true"
+DB_HOST = "postgres" if IS_DOCKER else "localhost"
+
+# Строим DATABASE_URL динамически
+POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "db")
+
+DATABASE_URL = (
+    f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}"
+    f"@{DB_HOST}:5432/{POSTGRES_DB}"
 )
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+logger.info(f"Connecting to database at: {DB_HOST}:5432/{POSTGRES_DB}")
 
+engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 
