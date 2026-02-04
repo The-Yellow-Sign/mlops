@@ -18,21 +18,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Определяем, запущены ли мы в Docker
-IS_DOCKER = os.getenv("IS_DOCKER", "false").lower() == "true"
-DB_HOST = "postgres" if IS_DOCKER else "localhost"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Строим DATABASE_URL динамически
-POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "db")
-
-DATABASE_URL = (
-    f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}"
-    f"@{DB_HOST}:5432/{POSTGRES_DB}"
-)
-
-logger.info(f"Connecting to database at: {DB_HOST}:5432/{POSTGRES_DB}")
+logger.info(f"Connecting to database at: {DATABASE_URL}")
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
