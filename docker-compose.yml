@@ -5,28 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: gitlab_collector
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     env_file:
       - .env
     volumes:
       - ./logs:/app/logs
-  
-  postgres:
-    image: postgres:18-alpine
-    container_name: postgres
-    ports:
-      - "5432:5432"
-    env_file:
-      - .env
-    volumes:
-      - postgres_data:/var/lib/postgresql/data    
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+
 
   pgadmin:
     image: dpage/pgadmin4
@@ -39,5 +22,4 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
 volumes:
-  postgres_data:
-  pgadmin_data:
+  pgadmin_data: {}
