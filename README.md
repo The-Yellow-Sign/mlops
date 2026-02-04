@@ -7,7 +7,7 @@
 ```bash
 $env:Path = "C:\Users\danie\.local\bin;$env:Path"
 ```
-$env:PYTHONPATH = "$PWD\src"
+
 ```bash
 uv sync
 ```
