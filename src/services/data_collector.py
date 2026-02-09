@@ -88,6 +88,10 @@ class GitLabDataCollector:
                     fullPath
                     webUrl
 
+                    group {
+                        id
+                    }
+
                     repository {
                         tree(ref: "main", recursive: true) {
                             blobs {
@@ -224,8 +228,18 @@ class GitLabDataCollector:
             if project_data:
                 try:
                     async with db_session.begin_nested():
+                        project_group_gitlab_id = project_data.get("group", {})
+                        group_id = None
+
+                        if project_group_gitlab_id:
+                            project_group_gitlab_id = project_group_gitlab_id.get("id")
+                            parent_group = await group_repo.get_group_by_gitlab_id(
+                                project_group_gitlab_id
+                            )
+                            group_id = parent_group.id if parent_group else None
+
                         await project_repo.create_or_update_project(
-                            project_data, group_id=None, run_id=run_id
+                            project_data, group_id=group_id, run_id=run_id
                         )
                         await self._collect_files(project_data, file_repo, project_repo)
                     await db_session.commit()
