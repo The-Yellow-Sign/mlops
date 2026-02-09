@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitLabGraphQLDiscoverer:
+
     """Сервис обнаружения через GitLab GraphQL API."""
 
     def __init__(self, config: GitLabConfig):
@@ -81,6 +82,9 @@ class GitLabGraphQLDiscoverer:
               name
               fullPath
               webUrl
+              parent {
+                id
+              }
             }
           }
         }

@@ -74,8 +74,7 @@ async def main():
 
             for meta in groups_meta:
                 try:
-                    # Используем существующий метод репозитория для сохранения
-                    await group_repo.create_or_update_group(meta)
+                    await group_repo.create_group(meta)
                 except Exception as e:
                     logger.error(
                         f"Failed to register group {meta.get('fullPath')}: {e}"

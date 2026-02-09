@@ -203,6 +203,7 @@ class GroupRepository(BaseRepository):
         for descendant_group in descendant_groups:
             parent_gitlab_id = descendant_group.get("parent", {}).get("id")
             if parent_gitlab_id:
+                parent_gitlab_id = parent_gitlab_id.get("id")
                 parent_group = await self.get_group_by_gitlab_id(parent_gitlab_id)
                 descendant_parent_id = parent_group.id if parent_group else None
             else:
@@ -211,6 +212,18 @@ class GroupRepository(BaseRepository):
             await self.create_or_update_group(
                 descendant_group, parent_id=descendant_parent_id
             )
+
+    async def create_group(self, data: dict[str, Any]) -> Group:
+        """Создает группу на основе полученных данных."""
+        parent_id = data.get("parent", {})
+        if parent_id:
+            parent_id = parent_id.get("id")
+            parent_group = await self.get_group_by_gitlab_id(parent_id)
+            parent_gitlab_id = parent_group.id if parent_group else None
+        else:
+            parent_gitlab_id = None
+
+        await self.create_or_update_group(data, parent_id=parent_gitlab_id)
 
 
 class ProjectRepository(BaseRepository):
