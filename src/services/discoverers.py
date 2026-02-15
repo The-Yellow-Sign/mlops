@@ -118,11 +118,8 @@ class GitLabGraphQLDiscoverer:
 
         query = """
         query($cursor: String) {
-          projects(membership: true, first: 100, after: $cursor) {
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
+          projects(first: 100, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               fullPath
             }
