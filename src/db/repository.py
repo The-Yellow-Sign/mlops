@@ -215,15 +215,15 @@ class GroupRepository(BaseRepository):
 
     async def create_group(self, data: dict[str, Any]) -> Group:
         """Создает группу на основе полученных данных."""
-        parent_id = data.get("parent", {})
-        if parent_id:
-            parent_id = parent_id.get("id")
-            parent_group = await self.get_group_by_gitlab_id(parent_id)
-            parent_gitlab_id = parent_group.id if parent_group else None
+        parent_gitlab_id = data.get("parent", {})
+        if parent_gitlab_id:
+            parent_gitlab_id = parent_gitlab_id.get("id")
+            parent_group = await self.get_group_by_gitlab_id(parent_gitlab_id)
+            parent_db_id = parent_group.id if parent_group else None
         else:
-            parent_gitlab_id = None
+            parent_db_id = None
 
-        await self.create_or_update_group(data, parent_id=parent_gitlab_id)
+        await self.create_or_update_group(data, parent_id=parent_db_id)
 
 
 class ProjectRepository(BaseRepository):

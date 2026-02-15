@@ -125,7 +125,7 @@ class GitLabCommitCollector:
             project_path = project.full_path
             file_path = file.path
             encoded_project_path = self._encode_project_path(project_path)
-            url = f"{self.config.rest_url}/{encoded_project_path}/repository/commits"
+            url = f"{self.config.rest_url}/projects/{encoded_project_path}/repository/commits"
 
             params = {
                 "path": file_path,

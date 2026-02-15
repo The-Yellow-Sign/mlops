@@ -119,7 +119,7 @@ class GitLabMDCollector:
         encoded_file_path = self._encode_project_path(file_path)
 
         url = (
-            f"{self.config.rest_url}/{encoded_project_path}"
+            f"{self.config.rest_url}/projects/{encoded_project_path}"
             f"/repository/files/{encoded_file_path}/raw"
         )
 
