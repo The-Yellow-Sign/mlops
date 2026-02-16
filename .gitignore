@@ -149,3 +149,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# GitLab
+srv
+
+# other
+tmp.json
+app.log
+HELPER.md
